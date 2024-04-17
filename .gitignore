@@ -2,3 +2,7 @@
 dataset/
 config.json
 logs/
+plugins/
+venv/
+client_secrets.json
+credentials_module.json

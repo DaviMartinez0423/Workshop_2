@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 import psycopg2
 import pandas as pd
 from dotenv import load_dotenv
@@ -52,29 +53,33 @@ def extract_grammy_ds(**kwargs):
         """
         cursor.execute(table_query)
         connection.commit()
-        print("Table created successfully")
+        logging.info('Table created successfully')
         
     except(Exception, psycopg2.Error) as error:
-        print("Error: ", error)
+        logging(f'Error: , {error}')
         
     finally:
         if 'connection' in locals():
             cursor.close()
             connection.close()
-            print("PostgreSQL connection closed")
+            logging.info('PostgreSQL connection closed')
             
     ds_location = DATA_PATH
     engine = create_engine(f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}")
 
     df = pd.read_csv(ds_location, delimiter=',')
     df.to_sql(name=table, con=engine, if_exists='append', index=False)
-
+    logging.info('The Grammy Awardss dataset has been successfully exported to the Postgres table.')
     query = f"SELECT * FROM {table}"
     df1 = pd.read_sql(query, engine)
+    df1 = df1.to_json(orient='records')
+    logging.info('Grammy Awards dataset has been successfully imported')
     kwargs['ti'].xcom_push(key='grammy_dataframe', value=df1)
 
 def transformations_grammy_ds(**kwargs):
+    ti = kwargs['ti']
     df1 = kwargs['ti'].xcom_pull(key='grammy_dataframe')
+    df1 = pd.json_normalize(data=df1)
     # Null Management
     df1['nominee'] = df1['nominee'].fillna('Unknown Nominee')
     df1['artist'] = df1['artist'].fillna('Unknown Artist')
@@ -85,15 +90,20 @@ def transformations_grammy_ds(**kwargs):
     # Removal of Unnecesary Columns
     to_eliminate = ['img', 'winner']
     df1 = df1.drop(columns=to_eliminate)
+    logging.info('Grammy Awards dataframe transformations performed')
     
     kwargs['ti'].xcom_push(key='grammy_dataframe', value=df1)
 
 def extraction_spotify_ds(**kwargs):
     df2 = pd.read_csv(DATA_PATH2, delimiter=',', encoding='utf-8')
+    logging.info('The Spotify dataset has been succesfully imported')
+    df2 = df2.to_json(orient='records')
     kwargs['ti'].xcom_push(key='spotify_dataframe', value=df2)
     
 def transformations_spotify_ds(**kwargs):
+    ti = kwargs['ti']
     df2 = kwargs['ti'].xcom_pull(key='spotify_dataframe')
+    df2 = pd.json_normalize(data=df2)
     # Null Management
     df2.fillna(value={'artists': 'Unknown Artist', 'album_name': 'Unknown Album', 'track_name': 'Unknown Track'}, inplace=True)
     # Data Type Management
@@ -103,21 +113,18 @@ def transformations_spotify_ds(**kwargs):
     # Removal Unnecessary Columns
     to_eliminate = ['Unnamed: 0', 'track_id']
     df2 = df2.drop(columns= to_eliminate)
-    
+    logging.info('Spotify data frame transformations performed')
     kwargs['ti'].xcom_push(key='spotify_dataframe', value=df2)
        
 def merge(**kwargs):
     df1 = kwargs['ti'].xcom_pull(key='grammy_dataframe')
     df2 = kwargs['ti'].xcom_pull(key='spotify_dataframe')
     merged_df = pd.merge(df1, df2, left_on='artist', right_on='artists' , how='inner')
+    logging.info('Data frame merging performed')
     to_eliminate = ['artists', 'updated_at', 'published_at']
     merged_df = merged_df.drop(columns=to_eliminate)
     for i in merged_df.columns:
         if merged_df[i].dtype == 'object':
             merged_df[i] = merged_df[i].astype('string')
-            
+    logging.info('Transformations of merged dataframe performed')
     kwargs['ti'].xcom_push(key='merge_dataframe', value=merged_df)
-            
-def load(**kwargs):
-    merge_df = kwargs['ti'].xcom_push(key='merge_dataframe')
-    

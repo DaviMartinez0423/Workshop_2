@@ -1,17 +1,17 @@
 import os
 import sys
 from airflow import DAG
-from etl import extract_grammy_ds,transformations_grammy_ds,extraction_spotify_ds,transformations_spotify_ds,merge,load
 from datetime import timedelta
 from datetime import datetime
 from airflow.operators.python import PythonOperator
 sys.path.append(os.path.abspath("/opt/airflow/dags/ds1_dag/"))
+from etl import extract_grammy_ds,transformations_grammy_ds,extraction_spotify_ds,transformations_spotify_ds,merge,load
 
 default_args = {
     
     'owner': 'airflow',
     'depends_on_past': False,
-    'start_date': datetime(2024, 4, 15),  # Update the start date to today or an appropriate date
+    'start_date': datetime(2024, 4, 15),
     'email': ['airflow@example.com'],
     'email_on_failure': False,
     'email_on_retry': False,
