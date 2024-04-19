@@ -3,20 +3,16 @@ import json
 import logging
 import psycopg2
 import pandas as pd
-from dotenv import load_dotenv
 from sqlalchemy import create_engine
 
 
-load_dotenv()
-
 DATA_PATH = os.getenv("DATA_PATH")
-JSON_PATH = os.getenv("JSON_PATH")
 DATA_PATH2 = os.getenv("DATA_PATH2")
 DATA_PATH3 = os.getenv('DATA_PATH3')
 DATA_PATH4 = os.getenv("DATA_PATH4")
 MERGE_PATH = os.getenv("MERGE_PATH")
 
-with open(JSON_PATH, encoding = 'utf-8') as f:
+with open('./dags/config.json', encoding = 'utf-8') as f:
     config = json.load(f)
     
 user = config['POSTGRES_USER']
@@ -115,16 +111,3 @@ def transformations_spotify_ds(**kwargs):
     df2 = df2.drop(columns= to_eliminate)
     logging.info('Spotify data frame transformations performed')
     kwargs['ti'].xcom_push(key='spotify_dataframe', value=df2)
-       
-def merge(**kwargs):
-    df1 = kwargs['ti'].xcom_pull(key='grammy_dataframe')
-    df2 = kwargs['ti'].xcom_pull(key='spotify_dataframe')
-    merged_df = pd.merge(df1, df2, left_on='artist', right_on='artists' , how='inner')
-    logging.info('Data frame merging performed')
-    to_eliminate = ['artists', 'updated_at', 'published_at']
-    merged_df = merged_df.drop(columns=to_eliminate)
-    for i in merged_df.columns:
-        if merged_df[i].dtype == 'object':
-            merged_df[i] = merged_df[i].astype('string')
-    logging.info('Transformations of merged dataframe performed')
-    kwargs['ti'].xcom_push(key='merge_dataframe', value=merged_df)

@@ -1,18 +1,14 @@
-import os
 import json
 import logging
 import psycopg2
 import pandas as pd
-from psycopg2 import Error
 from sqlalchemy import create_engine
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
-from pydrive2.files import FileNotDownloadableError
 
 credentials_drive = './dags/credentials_module.json'
-JSON_PATH = os.getenv("JSON_PATH")
 
-with open(JSON_PATH, encoding = 'utf-8') as f:
+with open('./dags/config.json', encoding = 'utf-8') as f:
     config = json.load(f)
     
 user = config['POSTGRES_USER']
@@ -26,21 +22,18 @@ merge_table = config['POSTGRES_MERGE_TABLE']
 def login_drive():
     GoogleAuth.DEFAULT_SETTINGS['client_config_file'] = credentials_drive
     gauth = GoogleAuth()
-    gauth.LocalWebserverAuth(credentials_drive)
-
+    gauth.LoadCredentialsFile(credentials_drive)
+    
     if gauth.credentials is None:
-        logging.info('Starting Authentication')
         gauth.LocalWebserverAuth(port_numbers=[8092])
     elif gauth.access_token_expired:
-        logging.info('Updating the access credential')
         gauth.Refresh()
     else:
-        logging.info('Authentication complete')
         gauth.Authorize()
         
     gauth.SaveCredentialsFile(credentials_drive)
-    credenciales = GoogleDrive(gauth)
-    return credenciales
+    credentials = GoogleDrive(gauth)
+    return credentials
 
 def upload(merge_path, folder):
     credentials = login_drive()
@@ -123,10 +116,9 @@ def load(**kwargs):
             connection.close()
             logging.info('PostgreSQL connection closed')
 
-    merge_df = kwargs['ti'].xcom_pull(key='merged_dataframe')
     engine = create_engine(f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}")
 
-    df = pd.read_csv(merge_df, delimiter = ',')
-
-    df.to_sql(name = table, con = engine, if_exists = 'append', index = False)
+    merge_df.to_sql(name = merge_table, con = engine, if_exists = 'append', index = False)
     logging.info('The Merged Dataframe was saved in the dataset successfully')
+    
+login_drive()
