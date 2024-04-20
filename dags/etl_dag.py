@@ -51,7 +51,6 @@ with DAG(
         task_id = 'DS2 Extraction',
         python_callable = extraction_spotify_ds(),
         provide_content = True
-        
     )
     
     transformation_spotify_df = PythonOperator(
