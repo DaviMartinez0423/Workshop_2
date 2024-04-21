@@ -6,7 +6,7 @@ from datetime import datetime
 from airflow.operators.python import PythonOperator
 sys.path.append(os.path.abspath("/opt/airflow/dags/"))
 from etl import extract_grammy_ds,transformations_grammy_ds,extraction_spotify_ds,transformations_spotify_ds
-from merge_and_store import login_drive, upload, merge, load
+from merge_and_store import login_drive, upload, merge, DB_load
 
 default_args = {
     
@@ -72,7 +72,7 @@ with DAG(
     load_task = PythonOperator(
         
         task_id = 'Load',
-        python_callable = load(),
+        python_callable = DB_load(),
         provide_content = True
         
     )

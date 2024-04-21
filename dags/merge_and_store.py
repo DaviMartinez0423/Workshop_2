@@ -1,25 +1,34 @@
+import os
 import json
 import logging
 import psycopg2
 import pandas as pd
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
 
-credentials_drive = './dags/credentials_module.json'
+load_dotenv()
 
-with open('./dags/config.json', encoding = 'utf-8') as f:
+MERGE_PATH = os.getenv("MERGE_PATH")
+JSON_PATH = os.getenv("JSON_PATH")
+MODULE_PATH = os.getenv('MODULE_PATH')
+ID_FOLDER = os.getenv('ID_FOLDER')
+
+with open(JSON_PATH, encoding = 'utf-8') as f:
     config = json.load(f)
-    
+
 user = config['POSTGRES_USER']
 password = config['POSTGRES_PASSWORD']
 host = config['POSTGRES_HOST']
 port = config['POSTGRES_PORT']
-database = config['POSTGRES_DB']
-table = config['POSTGRES_TABLE']
-merge_table = config['POSTGRES_MERGE_TABLE']
+database = config['POSTGRES_DB2']
+table_merged =   config['POSTGRES_MERGE_TABLE']
+grammy_transformed = config['POSTGRES_GRAMMY_TRANS']
+spotify_transformed =  config['POSTGRES_SPOTIFY_TRANS']
 
 def login_drive():
+    credentials_drive = MODULE_PATH
     GoogleAuth.DEFAULT_SETTINGS['client_config_file'] = credentials_drive
     gauth = GoogleAuth()
     gauth.LoadCredentialsFile(credentials_drive)
@@ -43,13 +52,19 @@ def upload(merge_path, folder):
     file.Upload()
     logging.info(f'The file {merge_path} file has been successfully uploaded to Google Drive')
 
-def merge(**kwargs):
-    ti = kwargs['ti']
-    df1 = kwargs['ti'].xcom_pull(key='grammy_dataframe')
-    df1 = pd.json_normalize(data=df1)
+def merge():
+    # Grammy Table Extraction
+    engine = create_engine(f"postgresql://{user}:{password}@{host}:{port}/{database}")
+    query = f"SELECT * FROM {grammy_transformed};"
+
+    df1 = pd.read_sql(query, engine)
     
-    df2 = kwargs['ti'].xcom_pull(key='spotify_dataframe')
-    df2 = pd.json_normalize(data=df2)
+    # Spotify Table Extraction
+    engine = create_engine(f"postgresql://{user}:{password}@{host}:{port}/{database}")
+    query = f"SELECT * FROM {spotify_transformed};"
+
+    df2 = pd.read_sql(query, engine)
+    
     
     merged_df = pd.merge(df1, df2, left_on='artist', right_on='artists' , how='inner')
     logging.info('Data frame merging performed')
@@ -60,12 +75,9 @@ def merge(**kwargs):
             merged_df[i] = merged_df[i].astype('string')
     logging.info('Transformations of merged dataframe performed')
     
-    kwargs['ti'].xcom_push(key='merge_dataframe', value=merged_df)
+    return merged_df
 
-def load(**kwargs):
-    ti = kwargs['ti']
-    merge_df = kwargs['ti'].xcom_push(key='merge_dataframe')
-    
+def DB_load(merged_df):
     try:
         connection = psycopg2.connect(
             user=user,
@@ -77,30 +89,31 @@ def load(**kwargs):
         cursor = connection.cursor()
         
         table_query = f"""
-            CREATE TABLE IF NOT EXISTS {merge_table}(
-                "year" INTEGER,
-                "title" VARCHAR(255),
-                "category" VARCHAR(255),
-                "nominee" VARCHAR(255),
-                "artist" VARCHAR(255),
-                "workers" TEXT,
-                "album_name" VARCHAR(255),
-                "track_name" VARCHAR(255),
-                "popularity" INTEGER,
-                "duration_ms" INTEGER,
-                "explicit" VARCHAR(255),
-                "danceability" REAL,
-                "energy" REAL,
-                "key" INTEGER,
-                "mode" INTEGER,
-                "speechiness" REAL,
-                "acousticness" REAL,
-                "instrumentalness" REAL,
-                "liveness" REAL,
-                "valence" REAL,
-                "tempo" REAL,
-                "time_signature" INTEGER,
-                "track_genre" VARCHAR(255)
+            CREATE TABLE IF NOT EXISTS {table_merged}(
+                year INTEGER,
+                title VARCHAR(1000),
+                category VARCHAR(1000),
+                nominee VARCHAR(1000),
+                artist VARCHAR(1000),
+                workers VARCHAR(1000),
+                album_name VARCHAR(1000),
+                track_name VARCHAR(1000),
+                popularity INTEGER,
+                duration_ms INTEGER,
+                explicit BOOLEAN,
+                danceability REAL,
+                energy REAL,
+                key INTEGER,
+                loudness REAL,
+                mode INTEGER,
+                speechiness REAL,
+                acousticness REAL,
+                instrumentalness REAL,
+                liveness REAL,
+                valence REAL,
+                tempo REAL,
+                time_signature INTEGER,
+                track_genre VARCHAR(1000)
             )
         """
         cursor.execute(table_query)
@@ -118,7 +131,13 @@ def load(**kwargs):
 
     engine = create_engine(f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}")
 
-    merge_df.to_sql(name = merge_table, con = engine, if_exists = 'append', index = False)
+    merged_df.to_sql(name = table_merged, con = engine, if_exists = 'append', index = False)
     logging.info('The Merged Dataframe was saved in the dataset successfully')
     
-login_drive()
+def main():
+    merged_df = merge()
+    DB_load(merged_df)
+    login_drive()
+    upload(MERGE_PATH, ID_FOLDER)
+
+main()
